@@ -18,8 +18,24 @@ NC='\033[0m'
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
+# 配置 pip 清华镜像源
+printf "\n${YELLOW}[1/6] 配置 pip 镜像源...${NC}\n"
+PIP_CONF_DIR="$HOME/.pip"
+PIP_CONF_FILE="$PIP_CONF_DIR/pip.conf"
+if [ -f "$PIP_CONF_FILE" ] && grep -q "tuna.tsinghua.edu.cn" "$PIP_CONF_FILE"; then
+    echo "pip 清华镜像源已配置，跳过"
+else
+    mkdir -p "$PIP_CONF_DIR"
+    cat > "$PIP_CONF_FILE" << 'EOF'
+[global]
+index-url = https://pypi.tuna.tsinghua.edu.cn/simple
+trusted-host = pypi.tuna.tsinghua.edu.cn
+EOF
+    printf "${GREEN}✓ pip 清华镜像源配置完成${NC}\n"
+fi
+
 # 检查 uv
-printf "\n${YELLOW}[1/5] 检查 uv...${NC}\n"
+printf "\n${YELLOW}[2/6] 检查 uv...${NC}\n"
 if command -v uv &> /dev/null; then
     printf "${GREEN}✓ uv 已安装${NC}\n"
 else
@@ -29,7 +45,7 @@ else
 fi
 
 # 检查 FFmpeg
-printf "\n${YELLOW}[2/5] 检查 FFmpeg...${NC}\n"
+printf "\n${YELLOW}[3/6] 检查 FFmpeg...${NC}\n"
 if command -v ffmpeg &> /dev/null; then
     FFMPEG_VERSION=$(ffmpeg -version | head -n1)
     printf "${GREEN}✓ $FFMPEG_VERSION${NC}\n"
@@ -42,7 +58,7 @@ else
 fi
 
 # 创建虚拟环境
-printf "\n${YELLOW}[3/5] 创建虚拟环境...${NC}\n"
+printf "\n${YELLOW}[4/6] 创建虚拟环境...${NC}\n"
 if [ -d ".venv" ]; then
     echo "虚拟环境已存在，跳过创建"
 else
@@ -51,13 +67,13 @@ else
 fi
 
 # 安装依赖
-printf "\n${YELLOW}[4/5] 安装依赖...${NC}\n"
+printf "\n${YELLOW}[5/6] 安装依赖...${NC}\n"
 source .venv/bin/activate
 uv pip install -r requirements.txt
 printf "${GREEN}✓ 依赖安装完成${NC}\n"
 
 # 创建配置文件
-printf "\n${YELLOW}[5/5] 初始化配置...${NC}\n"
+printf "\n${YELLOW}[6/6] 初始化配置...${NC}\n"
 if [ -f "config.yaml" ]; then
     echo "配置文件已存在，跳过创建"
 else
