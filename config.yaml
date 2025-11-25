@@ -27,3 +27,9 @@ users:
   - username: caotong
     password: caotong123
     role: user
+  - username: liwanlin
+    password: liwanlin123
+    role: user
+  - username: anonymous
+    password: anonymous123
+    role: user
