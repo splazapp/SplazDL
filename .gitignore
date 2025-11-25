@@ -1,0 +1,100 @@
+# ============ Python ============
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+develop-eggs/
+.installed.cfg
+*.manifest
+*.spec
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============ 虚拟环境 ============
+venv/
+.venv/
+env/
+ENV/
+.conda/
+
+# ============ 测试/类型检查 ============
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+
+# ============ 项目数据 ============
+# 数据库
+data.db
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# 下载目录
+downloads/
+
+# 日志
+logs/
+*.log
+
+# 配置（包含敏感信息）
+config.yaml
+.env
+.env.*
+!.env.example
+
+# Gradio
+flagged/
+gradio_cached_examples/
+
+# ============ IDE/编辑器 ============
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# ============ 系统文件 ============
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ============ 临时文件 ============
+*.tmp
+*.temp
+*.bak
+*.cache
+.cache/
+tmp/
+temp/

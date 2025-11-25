@@ -1,0 +1,29 @@
+# VideoFetcher 配置示例
+# 复制此文件为 config.yaml 并修改配置
+
+# 服务配置
+server:
+  host: 0.0.0.0
+  port: 7860
+
+# 下载配置
+download:
+  base_dir: ./downloads
+  max_concurrent: 3
+  default_quality: best  # best/1080p/720p/480p/audio
+
+# 日志配置
+logging:
+  level: INFO            # DEBUG/INFO/WARNING/ERROR
+  file: ./logs/app.log
+  max_size: 10MB
+  backup_count: 5
+
+# 用户配置
+users:
+  - username: admin
+    password: changeme    # 请修改密码
+    role: admin
+  - username: user1
+    password: changeme
+    role: user
