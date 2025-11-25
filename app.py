@@ -146,18 +146,24 @@ def create_app() -> gr.Blocks:
     """创建 Gradio 应用"""
     config = get_config()
 
-    auto_login_js = """
+    load_credentials_js = """
     async () => {
-        await new Promise(r => setTimeout(r, 300));
-        const username = localStorage.getItem('vf_username') || '';
-        const password = localStorage.getItem('vf_password') || '';
-        const remember = localStorage.getItem('vf_remember') === 'true';
-        return [username, password, remember];
+        await new Promise(r => setTimeout(r, 200));
+        return [
+            localStorage.getItem('vf_username') || '',
+            localStorage.getItem('vf_password') || '',
+            localStorage.getItem('vf_remember') === 'true'
+        ];
     }
     """
 
     save_credentials_js = """
-    (username, password, remember) => {
+    () => {
+        const form = document.querySelector('form');
+        const inputs = form?.querySelectorAll('input') || [];
+        const username = inputs[0]?.value || '';
+        const password = inputs[1]?.value || '';
+        const remember = inputs[2]?.checked || false;
         if (remember && username && password) {
             localStorage.setItem('vf_username', username);
             localStorage.setItem('vf_password', password);
@@ -244,10 +250,22 @@ def create_app() -> gr.Blocks:
                 )
             return gr.update(), gr.update(), None, "用户名或密码错误", gr.update(active=False)
 
+        def set_credentials(username: str, password: str, remember: bool):
+            """从 localStorage 设置凭据到输入框"""
+            return username, password, remember
+
         def try_auto_login(username: str, password: str, remember: bool):
             """尝试自动登录"""
             if remember and username and password:
-                return do_login(username, password, remember)
+                user = authenticate(username, password)
+                if user:
+                    return (
+                        gr.update(visible=False),
+                        gr.update(visible=True),
+                        user,
+                        f"**{user.username}** ({user.role})",
+                        gr.update(active=True),
+                    )
             return gr.update(), gr.update(), None, "", gr.update(active=False)
 
         def do_logout():
@@ -316,25 +334,29 @@ def create_app() -> gr.Blocks:
 
         # -------- 绑定事件 --------
 
+        # 页面加载：先设置输入框，再尝试自动登录
         app.load(
+            set_credentials,
+            outputs=[login_username, login_password, remember_me],
+            js=load_credentials_js,
+        ).then(
             try_auto_login,
             inputs=[login_username, login_password, remember_me],
             outputs=[login_page, main_page, current_user, user_info, timer],
-            js=auto_login_js,
         )
 
+        # 登录按钮
         login_btn.click(
             do_login,
             inputs=[login_username, login_password, remember_me],
             outputs=[login_page, main_page, current_user, user_info, timer],
-            js=save_credentials_js,
-        )
+        ).then(fn=None, js=save_credentials_js)
+
         login_password.submit(
             do_login,
             inputs=[login_username, login_password, remember_me],
             outputs=[login_page, main_page, current_user, user_info, timer],
-            js=save_credentials_js,
-        )
+        ).then(fn=None, js=save_credentials_js)
         logout_btn.click(
             do_logout,
             outputs=[login_page, main_page, current_user, login_msg, timer],
@@ -377,7 +399,6 @@ def main():
     Path(config.download.base_dir).mkdir(parents=True, exist_ok=True)
 
     app = create_app()
-
     logger.info(f"启动 Web 服务: http://{config.server.host}:{config.server.port}")
 
     app.launch(
