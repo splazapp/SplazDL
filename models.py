@@ -127,14 +127,17 @@ def delete_task(task_id: str):
 
 
 def clear_tasks(username: str | None = None) -> list[str]:
-    """清空任务并返回需要删除的文件路径列表
+    """清空任务并返回任务目录路径列表
 
     Args:
         username: 如果指定，只清空该用户的任务；否则清空所有任务
 
     Returns:
-        已完成任务的文件路径列表
+        任务目录路径列表
     """
+    config = get_config()
+    base_dir = Path(config.download.base_dir)
+
     with _lock:
         if username:
             # 只清空指定用户的任务
@@ -143,17 +146,18 @@ def clear_tasks(username: str | None = None) -> list[str]:
             # 清空所有任务
             tasks_to_remove = list(_tasks.values())
 
-        # 收集已完成文件的路径
-        file_paths = [
-            t.file_path for t in tasks_to_remove
-            if t.status == DownloadTask.STATUS_COMPLETED and t.file_path
-        ]
+        # 收集任务目录路径
+        task_dirs = []
+        for t in tasks_to_remove:
+            task_dir = base_dir / t.username / t.task_id
+            if task_dir.exists():
+                task_dirs.append(str(task_dir))
 
         # 删除任务
         for task in tasks_to_remove:
             _tasks.pop(task.task_id, None)
 
-        return file_paths
+        return task_dirs
 
 
 def format_size(size_bytes: int) -> str:

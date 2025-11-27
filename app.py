@@ -336,36 +336,35 @@ def create_app() -> gr.Blocks:
             return gr.update(value=str(zip_path), visible=True)
 
         def do_clear_all(user: User):
-            """清空所有任务和已完成文件"""
+            """清空所有任务，将目录移动到 .trash"""
             if not user:
                 return "", None, gr.update(visible=False)
 
             # 管理员清空所有，普通用户只清空自己的
             username = None if user.is_admin else user.username
-            file_paths = clear_tasks(username)
+            task_dirs = clear_tasks(username)
 
-            # 删除已完成的文件及其所在目录
-            deleted_count = 0
-            for file_path in file_paths:
+            # 创建 .trash 目录
+            trash_dir = Path(config.download.base_dir) / ".trash"
+            trash_dir.mkdir(parents=True, exist_ok=True)
+
+            # 将任务目录移动到 .trash
+            moved_count = 0
+            for task_dir_path in task_dirs:
                 try:
-                    fp = Path(file_path)
-                    if fp.exists():
-                        fp.unlink()
-                        deleted_count += 1
-                    # 删除任务目录（文件的父目录）
-                    task_dir = fp.parent
-                    if task_dir.exists() and task_dir.is_dir():
-                        # 确保目录为空后再删除
-                        remaining_files = list(task_dir.iterdir())
-                        if not remaining_files:
-                            task_dir.rmdir()
-                        else:
-                            # 如果还有其他文件，也一并删除
-                            shutil.rmtree(task_dir)
+                    task_dir = Path(task_dir_path)
+                    if task_dir.exists():
+                        dest = trash_dir / task_dir.name
+                        # 如果目标已存在，添加时间戳避免冲突
+                        if dest.exists():
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            dest = trash_dir / f"{task_dir.name}_{timestamp}"
+                        shutil.move(str(task_dir), str(dest))
+                        moved_count += 1
                 except Exception as e:
-                    logger.warning(f"删除文件/目录失败: {file_path}, 错误: {e}")
+                    logger.warning(f"移动目录到回收站失败: {task_dir_path}, 错误: {e}")
 
-            logger.info(f"用户 {user.username} 清空了 {len(file_paths)} 个任务，删除了 {deleted_count} 个文件")
+            logger.info(f"用户 {user.username} 清空了 {len(task_dirs)} 个任务，移动了 {moved_count} 个目录到回收站")
 
             return (
                 '<div style="text-align:center;padding:40px;color:#999;">暂无下载任务</div>',
