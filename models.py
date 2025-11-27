@@ -111,6 +111,18 @@ def get_all_tasks() -> list[DownloadTask]:
         return list(_tasks.values())
 
 
+def get_existing_urls(username: str | None = None) -> set[str]:
+    """获取已存在的任务链接集合
+
+    Args:
+        username: 如果指定，只返回该用户的链接；否则返回所有链接
+    """
+    with _lock:
+        if username:
+            return {t.url for t in _tasks.values() if t.username == username}
+        return {t.url for t in _tasks.values()}
+
+
 def get_completed_tasks(username: str | None = None) -> list[DownloadTask]:
     """获取已完成的任务"""
     with _lock:

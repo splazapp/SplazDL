@@ -8,6 +8,7 @@ os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["DO_NOT_TRACK"] = "1"
 
+import html
 import logging
 import shutil
 import tempfile
@@ -26,6 +27,7 @@ from models import (
     get_user,
     get_user_tasks,
     get_all_tasks,
+    get_existing_urls,
     format_size,
     clear_tasks,
 )
@@ -94,8 +96,8 @@ def generate_task_list_html(tasks: list[DownloadTask]) -> str:
         }
         status_text, status_color = status_map.get(t.status, (t.status, "#999"))
 
-        # 标题
-        title = t.title or t.url[:50]
+        # 标题和链接
+        title = t.title or "获取中..."
 
         # 进度/大小
         if t.status == DownloadTask.STATUS_COMPLETED:
@@ -105,9 +107,19 @@ def generate_task_list_html(tasks: list[DownloadTask]) -> str:
         else:
             progress_text = "-"
 
+        # 错误信息（失败时显示）
+        error_html = ""
+        if t.status == DownloadTask.STATUS_FAILED and t.error_msg:
+            error_escaped = html.escape(t.error_msg)
+            error_html = f'<div style="font-size:11px;color:#f44336;margin-top:2px;word-break:break-all;">{error_escaped}</div>'
+
         rows.append(f"""
         <tr>
-            <td style="padding:8px;max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{title}">{title}</td>
+            <td style="padding:8px;">
+                <div style="font-weight:500;">{title}</div>
+                <div style="font-size:12px;color:#888;word-break:break-all;">{t.url}</div>
+                {error_html}
+            </td>
             <td style="padding:8px;text-align:center;"><span style="color:{status_color};font-weight:500;">{status_text}</span></td>
             <td style="padding:8px;text-align:center;">{progress_text}</td>
         </tr>
@@ -120,6 +132,48 @@ def generate_task_list_html(tasks: list[DownloadTask]) -> str:
                 <th style="padding:10px;text-align:left;">标题</th>
                 <th style="padding:10px;text-align:center;width:80px;">状态</th>
                 <th style="padding:10px;text-align:center;width:120px;">进度/大小</th>
+            </tr>
+        </thead>
+        <tbody>
+            {''.join(rows)}
+        </tbody>
+    </table>
+    """
+
+
+def generate_completed_info_html(tasks: list[DownloadTask]) -> str:
+    """生成已完成文件信息 HTML"""
+    completed_tasks = [
+        t for t in tasks
+        if t.status == DownloadTask.STATUS_COMPLETED
+        and t.file_path
+        and Path(t.file_path).exists()
+    ]
+
+    if not completed_tasks:
+        return '<div style="text-align:center;padding:20px;color:#999;">暂无已完成文件</div>'
+
+    rows = []
+    for t in completed_tasks:
+        title = t.title or "未知"
+        size_text = format_size(t.file_size) if t.file_size > 0 else "-"
+
+        rows.append(f"""
+        <tr>
+            <td style="padding:6px;">
+                <div style="font-weight:500;">{title}</div>
+                <div style="font-size:12px;color:#888;word-break:break-all;">{t.url}</div>
+            </td>
+            <td style="padding:6px;text-align:center;">{size_text}</td>
+        </tr>
+        """)
+
+    return f"""
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:8px;">
+        <thead>
+            <tr style="background:#f0f9f0;border-bottom:1px solid #ddd;">
+                <th style="padding:8px;text-align:left;">文件信息</th>
+                <th style="padding:8px;text-align:center;width:80px;">大小</th>
             </tr>
         </thead>
         <tbody>
@@ -223,6 +277,7 @@ def create_app() -> gr.Blocks:
 
             # ========== 已完成文件 ==========
             gr.Markdown("### 已完成文件", elem_classes="section-title")
+            completed_info = gr.HTML("")
             completed_files = gr.File(
                 label="点击下载",
                 file_count="multiple",
@@ -275,28 +330,52 @@ def create_app() -> gr.Blocks:
             """退出"""
             return gr.update(visible=True), gr.update(visible=False), None, "", gr.update(active=False)
 
-        def do_download(url: str, quality: str, user: User):
+        def do_download(url: str, quality: str, user: User | None):
             """开始下载"""
             if not user:
-                return "请先登录", gr.update(), gr.update()
+                return "请先登录", gr.update(), gr.update(), gr.update()
             if not url.strip():
-                return "请输入视频链接", gr.update(), gr.update()
+                return "请输入视频链接", gr.update(), gr.update(), gr.update()
 
             try:
-                urls = [u.strip() for u in url.strip().split("\n") if u.strip()]
-                for u in urls:
-                    downloader.start_download(user, u, quality)
-                html, files = refresh_list(user)
-                return f"已创建 {len(urls)} 个下载任务", html, files
-            except Exception as e:
-                return f"创建失败: {e}", gr.update(), gr.update()
+                # 去空白行、输入去重（保持顺序）
+                seen = set()
+                urls = []
+                for line in url.strip().split("\n"):
+                    u = line.strip()
+                    if u and u not in seen:
+                        seen.add(u)
+                        urls.append(u)
 
-        def refresh_list(user: User):
+                if not urls:
+                    return "请输入有效的视频链接", gr.update(), gr.update(), gr.update()
+
+                # 过滤掉已存在的任务链接
+                existing_urls = get_existing_urls(user.username)
+                new_urls = [u for u in urls if u not in existing_urls]
+                skipped_count = len(urls) - len(new_urls)
+
+                if not new_urls:
+                    return f"所有链接已在下载任务中（跳过 {skipped_count} 个重复链接）", gr.update(), gr.update(), gr.update()
+
+                for u in new_urls:
+                    downloader.start_download(user, u, quality)
+                task_html, completed_html, files = refresh_list(user)
+
+                msg = f"已创建 {len(new_urls)} 个下载任务"
+                if skipped_count > 0:
+                    msg += f"（跳过 {skipped_count} 个重复链接）"
+                return msg, task_html, completed_html, files
+            except Exception as e:
+                return f"创建失败: {e}", gr.update(), gr.update(), gr.update()
+
+        def refresh_list(user: User | None):
             """刷新任务列表和已完成文件"""
             if not user:
-                return "", None
+                return "", "", None
             tasks = get_all_tasks() if user.is_admin else get_user_tasks(user.username)
-            html = generate_task_list_html(tasks)
+            task_html = generate_task_list_html(tasks)
+            completed_html = generate_completed_info_html(tasks)
 
             # 获取已完成的文件路径
             completed = [
@@ -306,9 +385,9 @@ def create_app() -> gr.Blocks:
                 and Path(t.file_path).exists()
             ]
 
-            return html, completed if completed else None
+            return task_html, completed_html, completed if completed else None
 
-        def download_all_as_zip(user: User):
+        def download_all_as_zip(user: User | None):
             """将所有已完成文件打包成 zip"""
             if not user:
                 return gr.update(visible=False)
@@ -335,30 +414,35 @@ def create_app() -> gr.Blocks:
 
             return gr.update(value=str(zip_path), visible=True)
 
-        def do_clear_all(user: User):
+        def do_clear_all(user: User | None):
             """清空所有任务，将目录移动到 .trash"""
             if not user:
-                return "", None, gr.update(visible=False)
+                return "", "", None, gr.update(visible=False)
 
             # 管理员清空所有，普通用户只清空自己的
             username = None if user.is_admin else user.username
             task_dirs = clear_tasks(username)
 
-            # 创建 .trash 目录
-            trash_dir = Path(config.download.base_dir) / ".trash"
-            trash_dir.mkdir(parents=True, exist_ok=True)
+            # .trash 根目录
+            trash_base = Path(config.download.base_dir) / ".trash"
 
-            # 将任务目录移动到 .trash
+            # 将任务目录移动到 .trash（保持用户目录结构）
             moved_count = 0
             for task_dir_path in task_dirs:
                 try:
                     task_dir = Path(task_dir_path)
                     if task_dir.exists():
-                        dest = trash_dir / task_dir.name
+                        # 获取用户名（任务目录的父目录名）
+                        task_username = task_dir.parent.name
+                        # 创建 .trash/username 目录
+                        user_trash_dir = trash_base / task_username
+                        user_trash_dir.mkdir(parents=True, exist_ok=True)
+                        # 目标路径
+                        dest = user_trash_dir / task_dir.name
                         # 如果目标已存在，添加时间戳避免冲突
                         if dest.exists():
                             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            dest = trash_dir / f"{task_dir.name}_{timestamp}"
+                            dest = user_trash_dir / f"{task_dir.name}_{timestamp}"
                         shutil.move(str(task_dir), str(dest))
                         moved_count += 1
                 except Exception as e:
@@ -368,6 +452,7 @@ def create_app() -> gr.Blocks:
 
             return (
                 '<div style="text-align:center;padding:40px;color:#999;">暂无下载任务</div>',
+                '<div style="text-align:center;padding:20px;color:#999;">暂无已完成文件</div>',
                 None,
                 gr.update(visible=False),
             )
@@ -405,13 +490,13 @@ def create_app() -> gr.Blocks:
         download_btn.click(
             do_download,
             inputs=[url_input, quality_select, current_user],
-            outputs=[download_msg, task_list, completed_files],
+            outputs=[download_msg, task_list, completed_info, completed_files],
         )
 
         timer.tick(
             refresh_list,
             inputs=[current_user],
-            outputs=[task_list, completed_files],
+            outputs=[task_list, completed_info, completed_files],
         )
 
         download_all_btn.click(
@@ -423,7 +508,7 @@ def create_app() -> gr.Blocks:
         clear_all_btn.click(
             do_clear_all,
             inputs=[current_user],
-            outputs=[task_list, completed_files, zip_file],
+            outputs=[task_list, completed_info, completed_files, zip_file],
         )
 
     return app
