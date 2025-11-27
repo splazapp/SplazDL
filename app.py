@@ -9,6 +9,7 @@ os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 os.environ["DO_NOT_TRACK"] = "1"
 
 import logging
+import shutil
 import tempfile
 import zipfile
 from datetime import datetime
@@ -26,6 +27,7 @@ from models import (
     get_user_tasks,
     get_all_tasks,
     format_size,
+    clear_tasks,
 )
 import downloader
 
@@ -228,6 +230,7 @@ def create_app() -> gr.Blocks:
             )
             with gr.Row():
                 download_all_btn = gr.Button("打包下载全部", variant="secondary")
+                clear_all_btn = gr.Button("清空全部", variant="stop")
             zip_file = gr.File(label="压缩包", visible=False)
 
             timer = gr.Timer(value=2, active=False)
@@ -332,6 +335,44 @@ def create_app() -> gr.Blocks:
 
             return gr.update(value=str(zip_path), visible=True)
 
+        def do_clear_all(user: User):
+            """清空所有任务和已完成文件"""
+            if not user:
+                return "", None, gr.update(visible=False)
+
+            # 管理员清空所有，普通用户只清空自己的
+            username = None if user.is_admin else user.username
+            file_paths = clear_tasks(username)
+
+            # 删除已完成的文件及其所在目录
+            deleted_count = 0
+            for file_path in file_paths:
+                try:
+                    fp = Path(file_path)
+                    if fp.exists():
+                        fp.unlink()
+                        deleted_count += 1
+                    # 删除任务目录（文件的父目录）
+                    task_dir = fp.parent
+                    if task_dir.exists() and task_dir.is_dir():
+                        # 确保目录为空后再删除
+                        remaining_files = list(task_dir.iterdir())
+                        if not remaining_files:
+                            task_dir.rmdir()
+                        else:
+                            # 如果还有其他文件，也一并删除
+                            shutil.rmtree(task_dir)
+                except Exception as e:
+                    logger.warning(f"删除文件/目录失败: {file_path}, 错误: {e}")
+
+            logger.info(f"用户 {user.username} 清空了 {len(file_paths)} 个任务，删除了 {deleted_count} 个文件")
+
+            return (
+                '<div style="text-align:center;padding:40px;color:#999;">暂无下载任务</div>',
+                None,
+                gr.update(visible=False),
+            )
+
         # -------- 绑定事件 --------
 
         # 页面加载：先设置输入框，再尝试自动登录
@@ -378,6 +419,12 @@ def create_app() -> gr.Blocks:
             download_all_as_zip,
             inputs=[current_user],
             outputs=[zip_file],
+        )
+
+        clear_all_btn.click(
+            do_clear_all,
+            inputs=[current_user],
+            outputs=[task_list, completed_files, zip_file],
         )
 
     return app

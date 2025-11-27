@@ -126,6 +126,36 @@ def delete_task(task_id: str):
         _tasks.pop(task_id, None)
 
 
+def clear_tasks(username: str | None = None) -> list[str]:
+    """清空任务并返回需要删除的文件路径列表
+
+    Args:
+        username: 如果指定，只清空该用户的任务；否则清空所有任务
+
+    Returns:
+        已完成任务的文件路径列表
+    """
+    with _lock:
+        if username:
+            # 只清空指定用户的任务
+            tasks_to_remove = [t for t in _tasks.values() if t.username == username]
+        else:
+            # 清空所有任务
+            tasks_to_remove = list(_tasks.values())
+
+        # 收集已完成文件的路径
+        file_paths = [
+            t.file_path for t in tasks_to_remove
+            if t.status == DownloadTask.STATUS_COMPLETED and t.file_path
+        ]
+
+        # 删除任务
+        for task in tasks_to_remove:
+            _tasks.pop(task.task_id, None)
+
+        return file_paths
+
+
 def format_size(size_bytes: int) -> str:
     """格式化文件大小"""
     if size_bytes <= 0:
