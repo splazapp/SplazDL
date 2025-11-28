@@ -11,6 +11,7 @@ os.environ["DO_NOT_TRACK"] = "1"
 import html
 import logging
 import shutil
+import subprocess
 import tempfile
 import zipfile
 from datetime import datetime
@@ -388,7 +389,7 @@ def create_app() -> gr.Blocks:
             return task_html, completed_html, completed if completed else None
 
         def download_all_as_zip(user: User | None):
-            """将所有已完成文件打包成 zip"""
+            """将所有已完成文件打包成 zip（保留 macOS 元数据）"""
             if not user:
                 return gr.update(visible=False)
 
@@ -403,14 +404,55 @@ def create_app() -> gr.Blocks:
             if not completed:
                 return gr.update(visible=False)
 
-            # 创建临时 zip 文件
+            # 创建临时目录存放要打包的文件
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            zip_path = Path(tempfile.gettempdir()) / f"videos_{timestamp}.zip"
+            temp_dir = Path(tempfile.gettempdir()) / f"videos_{timestamp}"
+            temp_dir.mkdir(parents=True, exist_ok=True)
 
-            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-                for file_path in completed:
-                    fp = Path(file_path)
-                    zf.write(fp, fp.name)
+            # 复制文件到临时目录（保留 xattr）
+            for file_path in completed:
+                fp = Path(file_path)
+                dest = temp_dir / fp.name
+                # 使用 cp -p 保留属性，或者直接复制后用 xattr 复制元数据
+                shutil.copy2(fp, dest)
+                # 复制 xattr 属性
+                try:
+                    subprocess.run(
+                        ["xattr", "-r", "-c", str(dest)],  # 先清除
+                        check=False, capture_output=True
+                    )
+                    # 复制 kMDItemWhereFroms 和 kMDItemFinderComment
+                    for attr in ["kMDItemWhereFroms", "kMDItemFinderComment"]:
+                        result = subprocess.run(
+                            ["xattr", "-px", f"com.apple.metadata:{attr}", str(fp)],
+                            capture_output=True, text=True
+                        )
+                        if result.returncode == 0 and result.stdout.strip():
+                            subprocess.run(
+                                ["xattr", "-wx", f"com.apple.metadata:{attr}",
+                                 result.stdout.strip().replace("\n", "").replace(" ", ""),
+                                 str(dest)],
+                                check=False, capture_output=True
+                            )
+                except Exception:
+                    pass
+
+            # 使用 ditto 创建 ZIP（保留 macOS 元数据）
+            zip_path = Path(tempfile.gettempdir()) / f"videos_{timestamp}.zip"
+            try:
+                subprocess.run(
+                    ["ditto", "-c", "-k", "--keepParent", "--rsrc", str(temp_dir), str(zip_path)],
+                    check=True, capture_output=True
+                )
+            except Exception:
+                # 如果 ditto 失败，使用标准 zipfile
+                with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for file_path in completed:
+                        fp = Path(file_path)
+                        zf.write(fp, fp.name)
+
+            # 清理临时目录
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
             return gr.update(value=str(zip_path), visible=True)
 

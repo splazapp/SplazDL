@@ -2,6 +2,8 @@
 下载核心模块 - 简化版
 """
 
+import plistlib
+import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -61,6 +63,20 @@ def start_download(user: User, url: str, quality: str = "best") -> str:
     return task.task_id
 
 
+def _sanitize_title_for_filename(title: str) -> str:
+    """将视频标题转换为安全的文件名"""
+    # 替换不安全的字符
+    unsafe_chars = ['/', '\\', ':', '*', '?', '"', '<', '>', '|']
+    filename = title
+    for char in unsafe_chars:
+        filename = filename.replace(char, '_')
+    # 限制文件名长度（保留空间给扩展名）
+    max_length = 200
+    if len(filename) > max_length:
+        filename = filename[:max_length]
+    return filename.strip()
+
+
 def _download_worker(task: DownloadTask, quality: str):
     """下载工作线程"""
     task_id = task.task_id
@@ -83,35 +99,60 @@ def _download_worker(task: DownloadTask, quality: str):
         task_dir = user_dir / task_id
         task_dir.mkdir(parents=True, exist_ok=True)
 
+        # 先提取视频信息（不下载）
+        extract_opts = {
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        task.status = DownloadTask.STATUS_DOWNLOADING
+
+        with yt_dlp.YoutubeDL(extract_opts) as ydl:
+            info = ydl.extract_info(task.url, download=False)
+
+        # 获取视频标题并生成安全文件名
+        video_title = info.get("title", "未知视频")
+        safe_filename = _sanitize_title_for_filename(video_title)
+
+        # 更新任务标题
+        task.title = video_title
+
+        # 下载视频，使用标题作为文件名
         ydl_opts = {
             "format": _get_format_selector(quality),
-            "outtmpl": str(task_dir / "%(title)s.%(ext)s"),
+            "outtmpl": str(task_dir / f"{safe_filename}.%(ext)s"),
             "progress_hooks": [progress_hook],
             "quiet": True,
             "no_warnings": True,
             "merge_output_format": "mp4",
         }
 
-        task.status = DownloadTask.STATUS_DOWNLOADING
-
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(task.url, download=True)
+            ydl.download([task.url])
 
         # 获取下载的文件路径
-        filename = ydl.prepare_filename(info)
-        filepath = Path(filename)
+        video_files = list(task_dir.glob("*.*"))
+        filepath = video_files[0] if video_files else None
 
-        if not filepath.exists():
-            video_files = list(task_dir.glob("*.*"))
-            if video_files:
-                filepath = video_files[0]
+        # 设置 macOS 来源 URL 元数据
+        if filepath and filepath.exists():
+            try:
+                plist_data = plistlib.dumps([task.url], fmt=plistlib.FMT_BINARY)
+                subprocess.run(
+                    ["xattr", "-wx", "com.apple.metadata:kMDItemWhereFroms",
+                     plist_data.hex(),
+                     str(filepath)],
+                    check=False,
+                    capture_output=True
+                )
+            except Exception:
+                pass
 
         # 更新任务状态
         task.status = DownloadTask.STATUS_COMPLETED
-        task.title = info.get("title", "未知")
         task.progress = 100
-        task.file_path = str(filepath) if filepath.exists() else ""
-        task.file_size = filepath.stat().st_size if filepath.exists() else 0
+        task.file_path = str(filepath) if filepath and filepath.exists() else ""
+        task.file_size = filepath.stat().st_size if filepath and filepath.exists() else 0
 
     except InterruptedError:
         task.status = DownloadTask.STATUS_PAUSED
