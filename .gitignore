@@ -54,6 +54,7 @@ logs/
 .env
 .env.*
 !.env.example
+douyin_cookies.txt
 
 # NiceGUI / 前端
 .nicegui/
