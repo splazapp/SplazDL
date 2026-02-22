@@ -6,6 +6,38 @@
 import sys
 
 
+class _NoopLogger:
+    def debug(self, msg, *args, **kwargs):
+        return None
+
+    def info(self, msg, *args, **kwargs):
+        return None
+
+    def warning(self, msg, *args, **kwargs):
+        return None
+
+    def error(self, msg, *args, **kwargs):
+        return None
+
+
+def _test_single_browser(browser_name: str) -> tuple[bool, str]:
+    """测试单个浏览器是否可读取到抖音关键 cookies"""
+    from yt_dlp.cookies import extract_cookies_from_browser
+
+    try:
+        jar = extract_cookies_from_browser(browser_name, logger=_NoopLogger())
+        douyin_cookies = [c for c in jar if 'douyin.com' in c.domain]
+        if not douyin_cookies:
+            return False, "未读取到 douyin.com cookies"
+
+        cookie_names = [c.name for c in douyin_cookies]
+        if 's_v_web_id' in cookie_names:
+            return True, f"可用（{len(douyin_cookies)} 个 douyin cookies，含 s_v_web_id）"
+        return False, f"读到 {len(douyin_cookies)} 个 cookies，但缺少 s_v_web_id"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"
+
+
 def test_browser_cookies():
     """测试从不同浏览器读取 cookies"""
     print("=" * 80)
@@ -24,46 +56,35 @@ def test_browser_cookies():
         print(f"\n✗ yt_dlp 未安装: {e}")
         return False
 
-    # 测试读取 Safari cookies（macOS 推荐）
+    # 测试多个浏览器，优先推荐首个可用项
     print("\n" + "-" * 80)
-    print("测试读取 Safari 浏览器的 douyin.com cookies...")
+    print("测试读取浏览器的 douyin.com cookies...")
     print("-" * 80)
 
     try:
-        from yt_dlp.cookies import extract_cookies_from_browser
+        from yt_dlp.cookies import SUPPORTED_BROWSERS
 
-        # 尝试读取 Safari 的 douyin.com cookies
-        jar = extract_cookies_from_browser('safari', logger=None)
+        preferred_order = ["safari", "chrome", "firefox", "edge", "brave"]
+        candidates = [b for b in preferred_order if b in SUPPORTED_BROWSERS]
+        results: list[tuple[str, bool, str]] = []
 
-        # 查找 douyin.com 的 cookies
-        douyin_cookies = [c for c in jar if 'douyin.com' in c.domain]
+        for browser in candidates:
+            ok, detail = _test_single_browser(browser)
+            results.append((browser, ok, detail))
+            icon = "✓" if ok else "✗"
+            print(f"{icon} {browser}: {detail}")
 
-        if douyin_cookies:
-            print(f"\n✓ 成功读取 Safari cookies！")
-            print(f"✓ 找到 {len(douyin_cookies)} 个 douyin.com 相关的 cookies")
-            print("\nCookies 列表:")
-            for cookie in douyin_cookies:
-                print(f"  - {cookie.name}: {cookie.value[:20]}..." if len(cookie.value) > 20 else f"  - {cookie.name}: {cookie.value}")
+        available = [item for item in results if item[1]]
+        if available:
+            best_browser = available[0][0]
+            print(f"\n✓ 推荐使用浏览器来源: {best_browser}")
+            print("在应用高级选项中设置:")
+            print(f'  cookies_from_browser = "{best_browser}"')
+            print("  cookie_file = 空")
+            return True
 
-            # 检查关键的 cookie
-            cookie_names = [c.name for c in douyin_cookies]
-            if 's_v_web_id' in cookie_names:
-                print("\n✓ 找到关键 cookie 's_v_web_id'，应该可以下载抖音视频！")
-                return True
-            else:
-                print("\n⚠️  警告: 没有找到关键 cookie 's_v_web_id'")
-                print("   请在 Safari 中访问 https://www.douyin.com 并等待页面完全加载")
-                return False
-        else:
-            print("\n⚠️  警告: 没有找到 douyin.com 的 cookies")
-            print("\n请执行以下步骤:")
-            print("1. 在 Safari 浏览器中打开: https://www.douyin.com")
-            print("   或运行: open -a Safari https://www.douyin.com")
-            print("2. 等待页面完全加载（看到视频推荐）")
-            print("3. 浏览几个视频")
-            print("4. 关闭 Safari 浏览器（可选）")
-            print("5. 重新运行此测试")
-            return False
+        print("\n⚠️  所有浏览器来源均不可用，建议改用 cookie_file 方式")
+        return False
 
     except Exception as e:
         print(f"\n✗ 读取 cookies 失败: {e}")
@@ -78,8 +99,8 @@ def test_browser_cookies():
             print("解决方案: 在 macOS 系统偏好设置中允许终端访问")
         else:
             print("\n可能的原因:")
-            print("1. Safari 浏览器未访问过 douyin.com")
-            print("2. Safari 用户配置文件路径不标准")
+            print("1. 浏览器未访问过 douyin.com")
+            print("2. 浏览器用户配置文件路径不标准")
             print("3. macOS 系统权限限制")
             print("\n建议: 使用手动导出 cookies 的方式（见下方备用方案）")
 
@@ -107,10 +128,11 @@ def test_manual_cookies():
     print("  4. 左侧选择 Cookies > https://www.douyin.com")
     print("  5. 复制所有 cookies")
 
-    print("\n然后修改 downloader.py，将第 178 行的:")
-    print('  "cookiesfrombrowser": ("chrome",),')
-    print("\n替换为:")
-    print('  "cookiefile": "./douyin_cookies.txt",')
+    print("\n然后在应用高级选项中设置:")
+    print('  cookie_file = "./douyin_cookies.txt"')
+    print('  cookies_from_browser = 空')
+    print("\n你也可以先用命令行验证:")
+    print('  yt-dlp --cookies ./douyin_cookies.txt "https://www.douyin.com/video/<id>"')
 
 
 if __name__ == "__main__":

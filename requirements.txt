@@ -1,3 +1,4 @@
-gradio
+nicegui>=2.0
 yt-dlp
 pyyaml
+nicegui

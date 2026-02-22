@@ -94,6 +94,31 @@ def create_task(username: str, url: str) -> DownloadTask:
     return task
 
 
+def create_tasks_if_new(username: str, urls: list[str]) -> tuple[list[DownloadTask], int]:
+    """原子地创建任务并去重（同一用户下 URL 去重）
+
+    Returns:
+        (created_tasks, skipped_count)
+    """
+    created: list[DownloadTask] = []
+    skipped_count = 0
+    with _lock:
+        existing_urls = {t.url for t in _tasks.values() if t.username == username}
+        for url in urls:
+            if url in existing_urls:
+                skipped_count += 1
+                continue
+            task = DownloadTask(
+                task_id=generate_task_id(),
+                username=username,
+                url=url,
+            )
+            _tasks[task.task_id] = task
+            created.append(task)
+            existing_urls.add(url)
+    return created, skipped_count
+
+
 def get_task(task_id: str) -> DownloadTask | None:
     """获取任务"""
     return _tasks.get(task_id)

@@ -55,9 +55,8 @@ logs/
 .env.*
 !.env.example
 
-# Gradio
-flagged/
-gradio_cached_examples/
+# NiceGUI / 前端
+.nicegui/
 
 # ============ IDE/编辑器 ============
 # PyCharm

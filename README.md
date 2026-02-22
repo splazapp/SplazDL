@@ -1,6 +1,6 @@
 # VideoFetcher
 
-基于 Python + yt-dlp  的视频下载工具（前后端分离），提供 Web 界面，支持批量下载、实时进度显示。
+基于 Python + yt-dlp 的视频下载工具，提供 NiceGUI Web 界面，支持批量下载、实时进度显示。
 
 ## 功能特点
 
@@ -30,11 +30,8 @@
 git clone <repo-url>
 cd VideoFetcher
 
-# 安装依赖
+# 安装依赖（使用当前 Python 环境，无需虚拟环境）
 pip install -r requirements.txt
-
-# 或使用 uv
-uv pip install -r requirements.txt
 ```
 
 ### 配置
@@ -71,6 +68,9 @@ users:
   - username: caotong
     password: pass456
     role: user
+
+# 可选：NiceGUI 会话密钥（用于登录态）。未设置时从环境变量 VIDEOFETCHER_STORAGE_SECRET 读取；生产环境建议设置
+# storage_secret: "your-random-secret"
 ```
 
 每个用户的下载文件存储在 `{base_dir}/{username}/` 目录下，互不干扰。
@@ -79,9 +79,11 @@ users:
 
 ```bash
 python app.py
+# 或使用 just
+just run
 ```
 
-访问 `http://localhost:7860`，使用配置的用户名密码登录。
+访问 `http://localhost:7860`，使用配置的用户名密码登录。生产环境建议设置 `storage_secret`（config.yaml）或环境变量 `VIDEOFETCHER_STORAGE_SECRET`。
 
 ## 使用说明
 
@@ -202,10 +204,9 @@ downloads/
 ## 依赖
 
 ```text
-gradio>=4.0.0
-yt-dlp>=2024.0.0
-pyyaml>=6.0.0
-peewee>=3.17.0
+nicegui>=2.0
+yt-dlp
+pyyaml
 ```
 
 ## 注意事项

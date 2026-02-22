@@ -58,6 +58,8 @@ class AppConfig:
     download: DownloadConfig = field(default_factory=DownloadConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     users: list[UserConfig] = field(default_factory=list)
+    # Session 密钥，用于 NiceGUI app.storage.user；未设置时从环境变量 VIDEOFETCHER_STORAGE_SECRET 读取
+    storage_secret: str | None = None
 
 
 def load_config(config_path: str = "config.yaml") -> AppConfig:
@@ -90,6 +92,7 @@ def load_config(config_path: str = "config.yaml") -> AppConfig:
         download=download,
         logging=logging_cfg,
         users=users,
+        storage_secret=data.get("storage_secret"),
     )
 
 
