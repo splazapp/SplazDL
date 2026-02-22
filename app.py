@@ -1,5 +1,5 @@
 """
-VideoFetcher 主程序 - NiceGUI 版
+SplazDL 主程序 - NiceGUI 版
 """
 
 import os
@@ -424,7 +424,7 @@ def main_page() -> None:
     with ui.column().classes("w-full max-w-[1400px] mx-auto p-3 gap-3"):
         # 头部
         with ui.row().classes("w-full items-center"):
-            ui.label("VideoFetcher").classes("text-h6")
+            ui.label("SplazDL").classes("text-h6")
             ui.space()
             display_identity = access_email or "local-admin"
             ui.badge(f"管理员: {display_identity}").props("outline")
@@ -1189,7 +1189,7 @@ body { background: #f7f8fa; }
 def main() -> None:
     """主函数"""
     setup_logging()
-    logger.info("启动 VideoFetcher...")
+    logger.info("启动 SplazDL...")
 
     config = get_config()
     logger.info("服务配置: %s:%s", config.server.host, config.server.port)
@@ -1211,7 +1211,7 @@ def main() -> None:
         port=config.server.port,
         reload=False,
         storage_secret=storage_secret,
-        title="VideoFetcher",
+        title="SplazDL",
     )
 
 

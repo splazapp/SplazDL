@@ -1,4 +1,4 @@
-# SplazDL / VideoFetcher - just 命令
+# SplazDL - just 命令
 # 使用: just 或 just <recipe>，例如 just run、just start、just config
 
 pid_file := "logs/app.pid"
@@ -19,7 +19,7 @@ setup:
     #!/usr/bin/env bash
     set -e
     echo "=========================================="
-    echo "  VideoFetcher 初始化"
+    echo "  SplazDL 初始化"
     echo "=========================================="
     command -v ffmpeg &>/dev/null || { echo "✗ 未找到 FFmpeg，请安装: brew install ffmpeg"; exit 1; }
     echo "✓ FFmpeg 已安装"
