@@ -3,10 +3,12 @@
 """
 
 import plistlib
+import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from urllib.parse import urlparse, parse_qs
 
 import yt_dlp
 
@@ -40,6 +42,48 @@ def get_executor() -> ThreadPoolExecutor:
     return _executor
 
 
+def _preprocess_url(url: str) -> str:
+    """
+    预处理 URL，转换为 yt-dlp 支持的格式
+
+    支持的转换：
+    1. 抖音搜索页面 URL (带 modal_id 参数) -> 标准视频 URL
+       例如: https://www.douyin.com/root/search/...?modal_id=123
+       转换为: https://www.douyin.com/video/123
+
+    2. 抖音分享链接 URL (带 modal_id 参数)
+       例如: https://www.douyin.com/...?modal_id=123
+       转换为: https://www.douyin.com/video/123
+    """
+    # 检查是否是抖音 URL
+    if 'douyin.com' in url:
+        # 解析 URL
+        parsed = urlparse(url)
+        query_params = parse_qs(parsed.query)
+
+        # 检查是否有 modal_id 参数
+        if 'modal_id' in query_params:
+            modal_id = query_params['modal_id'][0]
+            # 构造标准的抖音视频 URL
+            return f'https://www.douyin.com/video/{modal_id}'
+
+        # 检查是否已经是标准格式
+        video_match = re.match(r'https?://(?:www\.)?douyin\.com/video/(\d+)', url)
+        if video_match:
+            return url
+
+    # TikTok 类似处理（如果需要）
+    if 'tiktok.com' in url and 'modal_id' in url:
+        parsed = urlparse(url)
+        query_params = parse_qs(parsed.query)
+        if 'modal_id' in query_params:
+            modal_id = query_params['modal_id'][0]
+            return f'https://www.tiktok.com/video/{modal_id}'
+
+    # 其他 URL 直接返回
+    return url
+
+
 def _get_format_selector(quality: str) -> str:
     """根据质量选项生成 yt-dlp format 参数"""
     quality_map = {
@@ -54,7 +98,11 @@ def _get_format_selector(quality: str) -> str:
 
 def start_download(user: User, url: str, quality: str = "best") -> str:
     """启动下载任务"""
-    task = create_task(user.username, url)
+    # 预处理 URL（例如：抖音搜索页面 URL -> 标准视频 URL）
+    processed_url = _preprocess_url(url)
+
+    # 创建任务时使用处理后的 URL
+    task = create_task(user.username, processed_url)
 
     with _task_controls_lock:
         _task_controls[task.task_id] = False
@@ -125,6 +173,10 @@ def _download_worker(task: DownloadTask, quality: str):
             "quiet": True,
             "no_warnings": True,
             "merge_output_format": "mp4",
+            # 从浏览器自动导入 cookies（支持抖音、B站等需要 cookies 的网站）
+            # 支持的浏览器: chrome, firefox, edge, safari, opera, brave
+            # macOS 推荐使用 safari，更稳定
+            "cookiesfrombrowser": ("safari",),
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
