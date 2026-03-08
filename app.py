@@ -1272,9 +1272,8 @@ def upload_page() -> None:
                                 ui.label("上传失败").classes("text-negative text-caption")
 
             async def handle_upload(e):
-                filename = e.name
-                content = e.content.read()
-                size = len(content)
+                filename = e.file.name
+                size = e.file.size()
 
                 # 先插入 loading 记录
                 record: dict = {"filename": filename, "size": format_size(size), "oss_url": "", "uploading": True}
@@ -1283,9 +1282,9 @@ def upload_page() -> None:
                 spinner.visible = True
                 status_label.set_text(f"正在推送 {filename} 到 OSS…")
 
-                # 写临时文件，在线程中执行阻塞的 OSS 上传
+                # 保存临时文件，在线程中执行阻塞的 OSS 上传
                 tmp_path = Path(tempfile.gettempdir()) / f"splazdl_{uuid.uuid4().hex}_{filename}"
-                tmp_path.write_bytes(content)
+                await e.file.save(tmp_path)
                 task_id = uuid.uuid4().hex[:8]
 
                 oss_url = await ng_run.io_bound(upload_to_oss, task_id, tmp_path)
