@@ -2,6 +2,7 @@
 import logging
 import os
 from pathlib import Path
+from urllib.parse import quote
 
 log = logging.getLogger(__name__)
 
@@ -34,9 +35,10 @@ def upload_to_oss(task_id: str, filepath: Path) -> str:
 
     try:
         bucket.put_object_from_file(key, str(filepath), headers={"Content-Type": content_type})
+        encoded_key = quote(key, safe="/")
         if cdn_domain:
-            return f"https://{cdn_domain}/{key}"
-        return f"{endpoint}/{bucket_name}/{key}"
+            return f"https://{cdn_domain}/{encoded_key}"
+        return f"{endpoint}/{bucket_name}/{encoded_key}"
     except Exception:
         log.exception("OSS upload failed for %s", filepath)
         return ""
