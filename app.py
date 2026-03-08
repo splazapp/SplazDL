@@ -1219,12 +1219,12 @@ def main_page() -> None:
 def upload_page() -> None:
     """手动上传视频文件到 OSS"""
     import uuid
+    from nicegui import run as ng_run
     from oss_uploader import upload_to_oss
     from feishu_notify import send_download_complete
 
-    user, access_email = get_runtime_user_from_headers()
+    get_runtime_user_from_headers()
 
-    # 上传记录列表（内存，刷新即清空）
     upload_records: list[dict] = []
 
     with ui.column().classes("w-full max-w-[1000px] mx-auto p-3 gap-3"):
@@ -1232,72 +1232,80 @@ def upload_page() -> None:
             ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/")).props("flat dense")
             ui.label("上传文件到 OSS").classes("text-h6")
 
-        with ui.card().classes("w-full p-4"):
-            ui.label("选择文件").classes("text-subtitle1 q-mb-sm")
-            ui.label("支持视频/音频格式，可多选，上传后自动推送到阿里云 OSS").classes("text-caption text-grey-7 q-mb-md")
+        with ui.card().classes("w-full p-4 gap-3"):
+            ui.label("选择文件").classes("text-subtitle1")
+            ui.label("支持视频/音频格式，可多选，文件传输完成后自动推送到阿里云 OSS").classes("text-caption text-grey-7")
 
-            status_label = ui.label("").classes("text-caption text-grey-7")
+            with ui.row().classes("items-center gap-2"):
+                spinner = ui.spinner("dots", size="sm", color="teal")
+                spinner.visible = False
+                status_label = ui.label("").classes("text-caption text-grey-7")
 
             @ui.refreshable
             def records_ui():
                 if not upload_records:
-                    ui.label("暂无上传记录").classes("text-grey-7 q-mt-sm")
                     return
-                columns = [
-                    {"name": "filename", "label": "文件名", "field": "filename"},
-                    {"name": "size", "label": "大小", "field": "size"},
-                    {"name": "status", "label": "状态", "field": "status"},
-                    {"name": "oss_url", "label": "OSS 链接", "field": "oss_url"},
-                ]
-                rows = list(upload_records)
-                table = ui.table(columns=columns, rows=rows, row_key="filename").classes("w-full")
-                with table.add_slot("body-cell-oss_url"):
-                    with table.cell("oss_url"):
-                        ui.label().bind_text_from(table, "props", lambda p: p["row"].get("oss_url") or "-").classes("text-caption")
-                        ui.button("复制").props("flat dense size=xs color=teal").on(
-                            "click",
-                            js_handler='() => emit(props.row.oss_url)',
-                            handler=lambda e: (
-                                ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(e.args)})"),
-                                ui.notify("OSS链接已复制", color="positive"),
-                            ) if e.args else ui.notify("暂无OSS链接", color="warning"),
-                        )
+                ui.separator()
+                ui.label("上传记录").classes("text-subtitle2 q-mt-sm")
+                for rec in upload_records:
+                    with ui.card().classes("w-full q-pa-sm"):
+                        with ui.row().classes("w-full items-center gap-2 no-wrap"):
+                            if rec.get("uploading"):
+                                ui.spinner("dots", size="sm", color="teal")
+                            else:
+                                ui.icon(
+                                    "check_circle" if rec["oss_url"] else "error",
+                                    color="positive" if rec["oss_url"] else "negative",
+                                ).classes("text-lg")
+                            with ui.column().classes("grow gap-0 min-w-0"):
+                                ui.label(rec["filename"]).classes("text-body2 text-bold text-truncate")
+                                ui.label(rec["size"]).classes("text-caption text-grey-7")
+                            if rec.get("uploading"):
+                                ui.label("正在推送 OSS…").classes("text-caption text-grey-7")
+                            elif rec["oss_url"]:
+                                ui.label(rec["oss_url"]).classes("text-caption text-grey-8 text-truncate grow")
+                                ui.button("复制链接", on_click=lambda url=rec["oss_url"]: [
+                                    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(url)})"),
+                                    ui.notify("链接已复制", color="positive"),
+                                ]).props("flat dense size=sm color=teal icon=content_copy")
+                            else:
+                                ui.label("上传失败").classes("text-negative text-caption")
 
             async def handle_upload(e):
                 filename = e.name
                 content = e.content.read()
                 size = len(content)
 
-                status_label.set_text(f"正在上传 {filename}…")
-
-                # 写入临时文件
-                tmp_path = Path(tempfile.gettempdir()) / f"splazdl_upload_{uuid.uuid4().hex}_{filename}"
-                tmp_path.write_bytes(content)
-
-                task_id = uuid.uuid4().hex[:8]
-                oss_url = upload_to_oss(task_id, tmp_path)
-                tmp_path.unlink(missing_ok=True)
-
-                record = {
-                    "filename": filename,
-                    "size": format_size(size),
-                    "status": "✅ 已上传" if oss_url else "❌ 上传失败",
-                    "oss_url": oss_url,
-                }
+                # 先插入 loading 记录
+                record: dict = {"filename": filename, "size": format_size(size), "oss_url": "", "uploading": True}
                 upload_records.insert(0, record)
                 records_ui.refresh()
+                spinner.visible = True
+                status_label.set_text(f"正在推送 {filename} 到 OSS…")
+
+                # 写临时文件，在线程中执行阻塞的 OSS 上传
+                tmp_path = Path(tempfile.gettempdir()) / f"splazdl_{uuid.uuid4().hex}_{filename}"
+                tmp_path.write_bytes(content)
+                task_id = uuid.uuid4().hex[:8]
+
+                oss_url = await ng_run.io_bound(upload_to_oss, task_id, tmp_path)
+                tmp_path.unlink(missing_ok=True)
+
+                # 更新记录
+                record["oss_url"] = oss_url
+                record["uploading"] = False
+                records_ui.refresh()
+                spinner.visible = False
 
                 if oss_url:
-                    status_label.set_text(f"✅ {filename} 上传成功")
+                    status_label.set_text(f"✅ {filename} 已上传")
                     ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(oss_url)})")
                     ui.notify(f"{filename} 上传成功，链接已复制", color="positive")
-                    send_download_complete(
-                        task_id=task_id,
-                        title=filename,
-                        url="",
-                        oss_url=oss_url,
-                        file_size=size,
-                        duration=0,
+                    await ng_run.io_bound(
+                        lambda: send_download_complete(
+                            task_id=task_id, title=filename, url="",
+                            oss_url=oss_url, file_size=size, duration=0,
+                        )
                     )
                 else:
                     status_label.set_text(f"❌ {filename} 上传失败，请检查 OSS 配置")
@@ -1307,7 +1315,7 @@ def upload_page() -> None:
                 label="点击或拖拽文件到此处",
                 multiple=True,
                 on_upload=handle_upload,
-            ).props("accept='video/*,audio/*,.mp4,.mkv,.webm,.mov,.avi,.m4a,.mp3,.flac,.opus,.aac,.wav' color=teal").classes("w-full q-mb-md")
+            ).props("accept='video/*,audio/*,.mp4,.mkv,.webm,.mov,.avi,.m4a,.mp3,.flac,.opus,.aac,.wav' color=teal").classes("w-full")
 
             records_ui()
 
