@@ -51,6 +51,8 @@ class DownloadTask:
     error_msg: str = ""
     file_path: str = ""
     file_size: int = 0
+    duration: int = 0
+    oss_url: str = ""
     created_at: datetime = field(default_factory=datetime.now)
 
 

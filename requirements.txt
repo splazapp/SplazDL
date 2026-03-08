@@ -2,3 +2,6 @@ nicegui>=2.0
 yt-dlp
 pyyaml
 nicegui
+oss2
+python-dotenv
+requests

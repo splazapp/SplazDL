@@ -332,25 +332,51 @@ def get_completed_file_paths(user: User | None) -> list[str]:
     ]
 
 
+def _format_duration(seconds: int) -> str:
+    """格式化秒数为 mm:ss 或 hh:mm:ss"""
+    if seconds <= 0:
+        return "-"
+    h, rem = divmod(seconds, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h:02d}:{m:02d}:{s:02d}"
+    return f"{m:02d}:{s:02d}"
+
+
+def _build_readme_content(tasks: list[DownloadTask]) -> str:
+    """生成 README.txt 内容"""
+    lines = []
+    idx = 1
+    for t in sorted(tasks, key=lambda x: x.created_at):
+        lines.append(f"{idx}. {t.title or '未知标题'}")
+        lines.append(f"原始视频链接：{t.url}")
+        lines.append(f"OSS视频链接：{t.oss_url or '-'}")
+        lines.append(f"视频大小：{format_size(t.file_size)}")
+        lines.append(f"视频时长：{_format_duration(t.duration)}")
+        lines.append("")
+        idx += 1
+    return "\n".join(lines)
+
+
 def build_zip_path(user: User | None) -> str | None:
     """将所有已完成文件打包成 zip，返回临时 zip 路径；无文件则返回 None"""
     if not user:
         return None
     config = get_config()
     tasks = get_all_tasks() if user.is_admin else get_user_tasks(user.username)
-    completed = [
-        t.file_path for t in tasks
+    completed_tasks = [
+        t for t in tasks
         if t.status == DownloadTask.STATUS_COMPLETED
         and t.file_path
         and Path(t.file_path).exists()
     ]
-    if not completed:
+    if not completed_tasks:
         return None
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     temp_dir = Path(tempfile.gettempdir()) / f"videos_{timestamp}"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    for file_path in completed:
-        fp = Path(file_path)
+    for t in completed_tasks:
+        fp = Path(t.file_path)
         dest = temp_dir / fp.name
         shutil.copy2(fp, dest)
         try:
@@ -368,6 +394,8 @@ def build_zip_path(user: User | None) -> str | None:
                     )
         except Exception:
             pass
+    readme_path = temp_dir / "README.txt"
+    readme_path.write_text(_build_readme_content(completed_tasks), encoding="utf-8")
     zip_path = Path(tempfile.gettempdir()) / f"videos_{timestamp}.zip"
     try:
         subprocess.run(
@@ -376,9 +404,10 @@ def build_zip_path(user: User | None) -> str | None:
         )
     except Exception:
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-            for file_path in completed:
-                fp = Path(file_path)
+            for t in completed_tasks:
+                fp = Path(t.file_path)
                 zf.write(fp, fp.name)
+            zf.write(readme_path, "README.txt")
     shutil.rmtree(temp_dir, ignore_errors=True)
     return str(zip_path)
 
@@ -613,6 +642,14 @@ def main_page() -> None:
                 collect_download_options(),
             )
             ui.notify("已重新创建下载任务", color="positive")
+        elif action == "copy_oss":
+            if task.status != DownloadTask.STATUS_COMPLETED:
+                ui.notify("任务未完成，暂无OSS链接", color="warning")
+            elif not task.oss_url:
+                ui.notify("该任务暂无OSS链接（上传未完成或未启用）", color="warning")
+            else:
+                ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(task.oss_url)})")
+                ui.notify("OSS链接已复制到剪贴板", color="positive")
         elif action == "copy_error":
             if not task.error_msg:
                 ui.notify("该任务暂无错误信息", color="warning")
@@ -651,6 +688,11 @@ def main_page() -> None:
                         ui.button("下载").props("flat dense size=sm color=positive").on(
                             "click",
                             js_handler='() => emit(["download", props.row.task_id])',
+                            handler=lambda e: handle_task_action(e.args[0], e.args[1]),
+                        )
+                        ui.button("复制OSS").props("flat dense size=sm color=teal").on(
+                            "click",
+                            js_handler='() => emit(["copy_oss", props.row.task_id])',
                             handler=lambda e: handle_task_action(e.args[0], e.args[1]),
                         )
                         ui.button("暂停").props("flat dense size=sm").on(
