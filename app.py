@@ -454,6 +454,7 @@ def main_page() -> None:
         # 头部
         with ui.row().classes("w-full items-center"):
             ui.label("SplazDL").classes("text-h6")
+            ui.button("上传到OSS", on_click=lambda: ui.navigate.to("/upload")).props("flat dense size=sm color=teal icon=cloud_upload")
             ui.space()
             display_identity = access_email or "local-admin"
             ui.badge(f"管理员: {display_identity}").props("outline")
@@ -1212,6 +1213,103 @@ def main_page() -> None:
             history_ui()
 
     ui.timer(2.0, lambda: (task_table_ui.refresh(), completed_ui.refresh(), history_ui.refresh()))
+
+
+@ui.page("/upload")
+def upload_page() -> None:
+    """手动上传视频文件到 OSS"""
+    import uuid
+    from oss_uploader import upload_to_oss
+    from feishu_notify import send_download_complete
+
+    user, access_email = get_runtime_user_from_headers()
+
+    # 上传记录列表（内存，刷新即清空）
+    upload_records: list[dict] = []
+
+    with ui.column().classes("w-full max-w-[1000px] mx-auto p-3 gap-3"):
+        with ui.row().classes("w-full items-center"):
+            ui.button(icon="arrow_back", on_click=lambda: ui.navigate.to("/")).props("flat dense")
+            ui.label("上传文件到 OSS").classes("text-h6")
+
+        with ui.card().classes("w-full p-4"):
+            ui.label("选择文件").classes("text-subtitle1 q-mb-sm")
+            ui.label("支持视频/音频格式，可多选，上传后自动推送到阿里云 OSS").classes("text-caption text-grey-7 q-mb-md")
+
+            status_label = ui.label("").classes("text-caption text-grey-7")
+
+            @ui.refreshable
+            def records_ui():
+                if not upload_records:
+                    ui.label("暂无上传记录").classes("text-grey-7 q-mt-sm")
+                    return
+                columns = [
+                    {"name": "filename", "label": "文件名", "field": "filename"},
+                    {"name": "size", "label": "大小", "field": "size"},
+                    {"name": "status", "label": "状态", "field": "status"},
+                    {"name": "oss_url", "label": "OSS 链接", "field": "oss_url"},
+                ]
+                rows = list(upload_records)
+                table = ui.table(columns=columns, rows=rows, row_key="filename").classes("w-full")
+                with table.add_slot("body-cell-oss_url"):
+                    with table.cell("oss_url"):
+                        ui.label().bind_text_from(table, "props", lambda p: p["row"].get("oss_url") or "-").classes("text-caption")
+                        ui.button("复制").props("flat dense size=xs color=teal").on(
+                            "click",
+                            js_handler='() => emit(props.row.oss_url)',
+                            handler=lambda e: (
+                                ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(e.args)})"),
+                                ui.notify("OSS链接已复制", color="positive"),
+                            ) if e.args else ui.notify("暂无OSS链接", color="warning"),
+                        )
+
+            async def handle_upload(e):
+                filename = e.name
+                content = e.content.read()
+                size = len(content)
+
+                status_label.set_text(f"正在上传 {filename}…")
+
+                # 写入临时文件
+                tmp_path = Path(tempfile.gettempdir()) / f"splazdl_upload_{uuid.uuid4().hex}_{filename}"
+                tmp_path.write_bytes(content)
+
+                task_id = uuid.uuid4().hex[:8]
+                oss_url = upload_to_oss(task_id, tmp_path)
+                tmp_path.unlink(missing_ok=True)
+
+                record = {
+                    "filename": filename,
+                    "size": format_size(size),
+                    "status": "✅ 已上传" if oss_url else "❌ 上传失败",
+                    "oss_url": oss_url,
+                }
+                upload_records.insert(0, record)
+                records_ui.refresh()
+
+                if oss_url:
+                    status_label.set_text(f"✅ {filename} 上传成功")
+                    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(oss_url)})")
+                    ui.notify(f"{filename} 上传成功，链接已复制", color="positive")
+                    send_download_complete(
+                        task_id=task_id,
+                        title=filename,
+                        url="",
+                        oss_url=oss_url,
+                        file_size=size,
+                        duration=0,
+                    )
+                else:
+                    status_label.set_text(f"❌ {filename} 上传失败，请检查 OSS 配置")
+                    ui.notify(f"{filename} 上传失败", color="negative")
+
+            ui.upload(
+                label="点击或拖拽文件到此处",
+                multiple=True,
+                on_upload=handle_upload,
+            ).props("accept='video/*,audio/*,.mp4,.mkv,.webm,.mov,.avi,.m4a,.mp3,.flac,.opus,.aac,.wav' color=teal").classes("w-full q-mb-md")
+
+            records_ui()
 
 
 # ============ 样式 ============
