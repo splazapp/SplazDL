@@ -286,6 +286,24 @@ def do_download(url: str, quality: str, user: User | None, options: dict | None 
         return f"创建失败: {e}"
 
 
+def _copy_js(text: str) -> str:
+    """Return JS that copies text with a fallback for non-HTTPS (no navigator.clipboard)."""
+    import json as _json
+    escaped = _json.dumps(text)
+    return (
+        f"(function(t){{"
+        f"if(navigator.clipboard&&navigator.clipboard.writeText){{"
+        f"navigator.clipboard.writeText(t);"
+        f"}}else{{"
+        f"var ta=document.createElement('textarea');"
+        f"ta.value=t;ta.style.position='fixed';ta.style.opacity='0';"
+        f"document.body.appendChild(ta);ta.focus();ta.select();"
+        f"document.execCommand('copy');document.body.removeChild(ta);"
+        f"}}"
+        f"}}({escaped}))"
+    )
+
+
 def _format_duration(seconds: int | float | None) -> str:
     if not seconds:
         return "-"
@@ -649,13 +667,13 @@ def main_page() -> None:
             elif not task.oss_url:
                 ui.notify("该任务暂无OSS链接（上传未完成或未启用）", color="warning")
             else:
-                ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(task.oss_url)})")
+                ui.run_javascript(_copy_js(task.oss_url))
                 ui.notify("OSS链接已复制到剪贴板", color="positive")
         elif action == "copy_error":
             if not task.error_msg:
                 ui.notify("该任务暂无错误信息", color="warning")
             else:
-                ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(task.error_msg)})")
+                ui.run_javascript(_copy_js(task.error_msg))
                 ui.notify("错误信息已复制到剪贴板", color="positive")
 
         task_table_ui.refresh()
@@ -1265,7 +1283,7 @@ def upload_page() -> None:
                             elif rec["oss_url"]:
                                 ui.label(rec["oss_url"]).classes("text-caption text-grey-8 text-truncate grow")
                                 ui.button("复制链接", on_click=lambda url=rec["oss_url"]: [
-                                    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(url)})"),
+                                    ui.run_javascript(_copy_js(url)),
                                     ui.notify("链接已复制", color="positive"),
                                 ]).props("flat dense size=sm color=teal icon=content_copy")
                             else:
@@ -1298,7 +1316,7 @@ def upload_page() -> None:
 
                 if oss_url:
                     status_label.set_text(f"✅ {filename} 已上传")
-                    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(oss_url)})")
+                    ui.run_javascript(_copy_js(oss_url))
                     ui.notify(f"{filename} 上传成功，链接已复制", color="positive")
                     await ng_run.io_bound(
                         lambda: send_download_complete(

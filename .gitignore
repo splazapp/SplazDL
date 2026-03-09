@@ -100,3 +100,6 @@ tmp/
 temp/
 
 sdks/*
+
+# ============ 私有 Claude Skills ============
+.claude/skills/
