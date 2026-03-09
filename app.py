@@ -756,6 +756,7 @@ def main_page() -> None:
                 "size": format_size(t.file_size),
                 "created_at": _format_dt(t.created_at),
                 "file_path": t.file_path,
+                "oss_url": t.oss_url or "",
             }
             for t in sorted(completed, key=lambda x: x.created_at, reverse=True)
         ]
@@ -764,9 +765,19 @@ def main_page() -> None:
             {"name": "title", "label": "标题", "field": "title"},
             {"name": "size", "label": "大小", "field": "size", "sortable": True},
             {"name": "created_at", "label": "完成时间", "field": "created_at", "sortable": True},
+            {"name": "oss_url", "label": "OSS链接", "field": "oss_url"},
             {"name": "action", "label": "操作", "field": "action"},
         ]
         table = ui.table(columns=columns, rows=rows, row_key="task_id", pagination=8).classes("w-full")
+        table.add_slot("body-cell-oss_url", """
+            <q-td key="oss_url" :props="props">
+              <a v-if="props.row.oss_url" :href="props.row.oss_url" target="_blank"
+                 style="color:#009688;font-size:0.75rem;word-break:break-all;max-width:300px;display:inline-block">
+                {{ props.row.oss_url }}
+              </a>
+              <span v-else style="color:#9e9e9e">-</span>
+            </q-td>
+        """)
         with table.add_slot("body-cell-action"):
             with table.cell("action"):
                 ui.button("下载").props("flat dense size=sm color=primary").on(
